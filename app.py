@@ -6,7 +6,7 @@ from PIL import Image
 import tempfile
 import os
 import time
-
+import gdown
 # Set page config
 st.set_page_config(
     page_title="BDD10K Object Detection",
@@ -39,19 +39,37 @@ st.markdown("""
 CUSTOM_LABELS = ["car", "train", "motor", "person", "bus", "truck", "bike", 
                 "rider", "traffic light", "traffic sign"]
 MODEL_PATHS = {
-    "PyTorch (.pt)": "weights/best.pt",
-    "ONNX (.onnx)": "weights/best.onnx"
+    "PyTorch (.pt)": {
+        "url": "https://drive.google.com/drive/folders/1p6d1QxxzmWfGFJjyij9TqEG3ZzVk3nvP?usp=sharing",
+        "path": "best.pt"  # Local save path
+    },
+    "ONNX (.onnx)": {
+        "url": "https://drive.google.com/drive/folders/1p6d1QxxzmWfGFJjyij9TqEG3ZzVk3nvP?usp=sharing",
+        "path": "best.onnx"  # Local save path
+    }
 }
 
 @st.cache_resource(show_spinner=False)
-def load_model(model_path):
-    """Cache the model loading to improve performance"""
+def load_model(model_info):
+    """Download (if needed) and load model from Google Drive"""
+    os.makedirs("weights", exist_ok=True)  # Create weights folder
+    
+    # Download if file doesn't exist
+    if not os.path.exists(model_info["path"]):
+        try:
+            with st.spinner(f"Downloading model..."):
+                gdown.download(model_info["url"], model_info["path"], quiet=False)
+        except Exception as e:
+            st.error(f"Download failed: {e}")
+            return None
+    
+    # Load the model
     try:
-        model = YOLO(model_path)
+        model = YOLO(model_info["path"])
         model.names = CUSTOM_LABELS
         return model
     except Exception as e:
-        st.error(f"Model loading failed: {str(e)}")
+        st.error(f"Model loading failed: {e}")
         return None
 
 def process_frame(_model, frame, conf_threshold):
@@ -117,6 +135,7 @@ def main():
         """)
 
     # Load model
+    model_type = st.sidebar.radio("Model Format", list(MODEL_PATHS.keys()))
     model = load_model(MODEL_PATHS[model_type])
     if not model:
         return
