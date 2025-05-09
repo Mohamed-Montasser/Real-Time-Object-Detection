@@ -87,9 +87,8 @@ MODEL_PATHS = {
 # Ensure model directory exists
 os.makedirs(os.getcwd(), exist_ok=True)
 
-@st.cache_resource(show_spinner=False)
-def load_model(model_type):
-    """Load the model with proper error handling and verification"""
+def download_model(model_type):
+    """Download a pre-defined model"""
     if model_type not in MODEL_PATHS:
         st.error(f"Unknown model type: {model_type}")
         return None
@@ -106,25 +105,40 @@ def load_model(model_type):
             with st.spinner(f"Downloading model from Google Drive..."):
                 try:
                     gdown.download(model_info["url"], model_path, quiet=False, use_cookies=True)
-                    st.success(f"Model downloaded to {model_path}")
+                    if os.path.exists(model_path):
+                        st.success(f"Model downloaded to {model_path}")
+                        return model_path
+                    else:
+                        st.error(f"Download failed, file not found at {model_path}")
+                        return None
                 except Exception as download_error:
                     st.error(f"Download error: {download_error}")
                     return None
-        
-        # Verify file exists
-        if not os.path.exists(model_path):
-            st.error(f"Model file not found at {model_path}")
-            return None
+        else:
+            st.info(f"Model already exists at {model_path}")
+            return model_path
             
+    except Exception as e:
+        st.error(f"Model download failed: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
+        return None
+
+@st.cache_resource(show_spinner=False)
+def load_model(model_path):
+    """Load a model from a path"""
+    if not model_path or not os.path.exists(model_path):
+        st.error(f"Model file not found at {model_path}")
+        return None
+        
+    try:
         # Check file size
         file_size = os.path.getsize(model_path)
         if file_size < 10000:  # Less than 10KB is probably not a valid model
             with open(model_path, 'rb') as f:
                 header = f.read(100)
                 if b'<!DOCTYPE html>' in header or b'<html' in header:
-                    st.error("Downloaded file is HTML, not a model file. Drive link may require authentication.")
-                    # Remove the invalid file
-                    os.remove(model_path)
+                    st.error("File appears to be HTML, not a model file.")
                     return None
         
         st.info(f"Loading model from {model_path}...")
@@ -138,6 +152,27 @@ def load_model(model_type):
         st.error(f"Model loading failed: {str(e)}")
         import traceback
         st.code(traceback.format_exc())
+        return None
+
+def save_uploaded_model(uploaded_file):
+    """Save an uploaded model file to disk"""
+    try:
+        if uploaded_file is None:
+            return None
+            
+        # Create a temp file with the appropriate extension
+        file_ext = os.path.splitext(uploaded_file.name)[1]
+        temp_model_path = os.path.join(os.getcwd(), f"uploaded_model{file_ext}")
+        
+        # Save the uploaded file
+        with open(temp_model_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+            
+        st.success(f"Model uploaded and saved to {temp_model_path}")
+        return temp_model_path
+        
+    except Exception as e:
+        st.error(f"Error saving uploaded model: {str(e)}")
         return None
 
 def process_frame(model, frame, conf_threshold):
@@ -195,26 +230,59 @@ def main():
     
     # Sidebar controls
     with st.sidebar:
-        st.header("Settings")
+        st.header("Model Selection")
         
-        # Model selection
-        model_type = st.radio(
-            "Model Format",
-            list(MODEL_PATHS.keys()),
-            index=0,
-            key="model_format_selector"
+        # Model source selection
+        model_source = st.radio(
+            "Choose Model Source",
+            ["Pre-defined Models", "Upload Your Own Model"],
+            key="model_source"
         )
         
-        # Try loading model with button to give more control
-        if st.button("Load Selected Model"):
-            with st.spinner("Loading model..."):
-                model = load_model(model_type)
-                if model:
-                    st.session_state['model'] = model
-                    st.success(f"Model loaded successfully!")
-                else:
-                    st.error("Failed to load model. Check errors above.")
+        model_path = None
         
+        if model_source == "Pre-defined Models":
+            # Pre-defined model selection
+            model_type = st.selectbox(
+                "Select Pre-defined Model",
+                list(MODEL_PATHS.keys()),
+                key="model_format_selector"
+            )
+            
+            if st.button("Download Selected Model", key="download_btn"):
+                model_path = download_model(model_type)
+                if model_path:
+                    st.session_state['model_path'] = model_path
+                
+        else:  # Upload your own model
+            st.info("Upload your own YOLOv8 model (.pt or .onnx)")
+            uploaded_model = st.file_uploader(
+                "Upload Model File", 
+                type=["pt", "onnx"],
+                help="Upload a YOLOv8 model file"
+            )
+            
+            if uploaded_model is not None:
+                if st.button("Use Uploaded Model", key="upload_btn"):
+                    model_path = save_uploaded_model(uploaded_model)
+                    if model_path:
+                        st.session_state['model_path'] = model_path
+        
+        # Load model button
+        model_path = st.session_state.get('model_path', None)
+        if model_path and os.path.exists(model_path):
+            st.success(f"Model ready: {os.path.basename(model_path)}")
+            
+            if st.button("Load Model", key="load_btn"):
+                with st.spinner("Loading model..."):
+                    model = load_model(model_path)
+                    if model:
+                        st.session_state['model'] = model
+                        st.success(f"Model loaded successfully!")
+                    else:
+                        st.error("Failed to load model. Check errors above.")
+        
+        st.header("Detection Settings")
         conf_threshold = st.slider(
             "Confidence Threshold", 
             0.1, 0.9, 0.5, 0.05,
@@ -224,25 +292,27 @@ def main():
         st.divider()
         st.info("""
         **Instructions:**
-        1. Select model format
-        2. Click "Load Selected Model"
-        3. Upload image/video
-        4. Click 'Process'
-        5. View results
+        1. Choose model source (pre-defined or upload)
+        2. Download/Upload a model
+        3. Click "Load Model"
+        4. Upload image/video
+        5. Click 'Process'
+        6. View results
         """)
 
     # Check if model is loaded
     model = st.session_state.get('model', None)
     if model is None:
-        st.warning("Please load a model from the sidebar first.")
+        st.warning("Please select and load a model from the sidebar first.")
         return
 
-    # File upload
+    # File upload for media
     uploaded_file = st.file_uploader(
         "Upload media", 
         type=["jpg", "jpeg", "png", "mp4", "avi", "mov"],
         accept_multiple_files=False,
-        help="Supports images and videos"
+        help="Supports images and videos",
+        key="media_uploader"
     )
 
     if uploaded_file:
