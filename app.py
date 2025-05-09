@@ -56,11 +56,11 @@ CUSTOM_LABELS = ["car", "train", "motor", "person", "bus", "truck", "bike",
                 "rider", "traffic light", "traffic sign"]
 MODEL_PATHS = {
     "PyTorch (.pt)": {
-        "url": "https://drive.google.com/drive/folders/1p6d1QxxzmWfGFJjyij9TqEG3ZzVk3nvP?usp=sharing",
+        "url": "https://drive.google.com/file/d/10h9qk50tdkVrBQ2czqPF3rvsgXuDMpDJ/view",
         "path": "best.pt"  # Local save path
     },
     "ONNX (.onnx)": {
-        "url": "https://drive.google.com/drive/folders/1p6d1QxxzmWfGFJjyij9TqEG3ZzVk3nvP?usp=sharing",
+        "url": "https://drive.google.com/file/d/13RtUuLQa4HdK2w1qUtFm8RRA0WafkSXW/edit",
         "path": "best.onnx"  # Local save path
     }
 }
