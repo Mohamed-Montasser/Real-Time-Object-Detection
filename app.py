@@ -8,6 +8,7 @@ try:
     )
 except Exception as e:
     st.error(f"Page config error: {e}")
+
 from ultralytics import YOLO
 try:
     import cv2
@@ -16,12 +17,12 @@ except ImportError:
     import subprocess
     subprocess.check_call([sys.executable, "-m", "pip", "install", "opencv-python-headless"])
     import cv2
+
 import numpy as np
 from PIL import Image
 import tempfile
 import os
 import time
-import gdown
 import sys
 import torch
 import ultralytics
@@ -54,48 +55,22 @@ st.markdown("""
 # Constants
 CUSTOM_LABELS = ["car", "train", "motor", "person", "bus", "truck", "bike", 
                 "rider", "traffic light", "traffic sign"]
-MODEL_PATHS = {
-    "PyTorch (.pt)": {
-        "url": "https://drive.google.com/uc?export=download&id=10h9qk50tdkVrBQ2czqPF3rvsgXuDMpDJ",
-        "path": "best.pt"  # Local save path
-    },
-    "ONNX (.onnx)": {
-        "url": "https://drive.google.com/uc?export=download&id=13RtUuLQa4HdK2w1qUtFm8RRA0WafkSXW",
-        "path": "best.onnx"  # Local save path
-    }
-}
+
+MODEL_PATH = "weights/best.pt"
 
 @st.cache_resource(show_spinner=False)
-def load_model(model_info):  # Now accepts the full dict
+def load_model():
     try:
-        model_path = model_info["path"]
-        
-        # Download if file doesn't exist
-        if not os.path.exists(model_path):
-            with st.spinner(f"Downloading model from {model_info['url']}..."):
-                gdown.download(model_info["url"], model_path, quiet=False, use_cookies=True)
-        
-        # Verify file
-        if not os.path.exists(model_path):
-            st.error(f"Model file not found at {model_path}")
+        if not os.path.exists(MODEL_PATH):
+            st.error(f"Model file not found at {MODEL_PATH}")
             return None
-            
-        # Check file content
-        with open(model_path, 'rb') as f:
-            header = f.read(10)
-            if header.startswith(b'<') or b'html' in header.lower():
-                st.error("Download failed - got HTML instead of model file")
-                return None
-                
-        # Load model
-        model = YOLO(model_path)
+        model = YOLO(MODEL_PATH)
         return model
     except Exception as e:
         st.error(f"Model loading failed: {str(e)}")
         return None
 
 def process_frame(_model, frame, conf_threshold):
-    """Process a single frame with error handling"""
     try:
         results = _model(frame, conf=conf_threshold, verbose=False)
         annotated_frame = results[0].plot(line_width=2, font_size=10)
@@ -105,7 +80,6 @@ def process_frame(_model, frame, conf_threshold):
         return frame, None
 
 def display_detections(results):
-    """Display detection results in sidebar"""
     if results:
         detections = []
         for box in results[0].boxes:
@@ -113,7 +87,7 @@ def display_detections(results):
                 "label": CUSTOM_LABELS[int(box.cls)],
                 "confidence": float(box.conf)
             })
-        
+
         if detections:
             with st.sidebar.expander("📊 Detection Stats", expanded=True):
                 st.subheader("Detected Objects")
@@ -133,15 +107,8 @@ def main():
     st.title("🚦 BDD10K Traffic Object Detection")
     st.caption("Detect vehicles, pedestrians, and traffic elements in images/videos")
     
-    # Sidebar controls
     with st.sidebar:
         st.header("Settings")
-        model_type = st.radio(
-            "Model Format",
-            list(MODEL_PATHS.keys()),
-            index=0
-        )
-        
         conf_threshold = st.slider(
             "Confidence Threshold", 
             0.1, 0.9, 0.5, 0.05,
@@ -156,18 +123,10 @@ def main():
         3. View results
         """)
 
-    # Load model
-    model_type = st.sidebar.radio(
-    "Model Format",
-    list(MODEL_PATHS.keys()),
-    key="model_format_selector"  # Unique key
-    )
-    model = load_model(MODEL_PATHS[model_type])
-    #model = load_model(MODEL_PATHS[model_type]) 
+    model = load_model()
     if not model:
         return
 
-    # File upload
     uploaded_file = st.file_uploader(
         "Upload media", 
         type=["jpg", "jpeg", "png", "mp4", "avi", "mov"],
@@ -179,7 +138,6 @@ def main():
         file_ext = uploaded_file.name.split(".")[-1].lower()
         
         if file_ext in ["jpg", "jpeg", "png"]:
-            # Image processing
             col1, col2 = st.columns(2)
             with col1:
                 st.subheader("Original Image")
@@ -201,7 +159,6 @@ def main():
                     display_detections(results)
         
         elif file_ext in ["mp4", "avi", "mov"]:
-            # Video processing
             st.subheader("Uploaded Video Preview")
             tfile = tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_ext}")
             tfile.write(uploaded_file.read())
@@ -231,7 +188,6 @@ def main():
                     processed_frame, _ = process_frame(model, frame, conf_threshold)
                     processed_frames.append(processed_frame)
                     
-                    # Display every nth frame to improve performance
                     if frame_count % 5 == 0:
                         st_frame.image(processed_frame, channels="RGB")
                     
@@ -243,7 +199,6 @@ def main():
                 cap.release()
                 os.unlink(tfile.name)
                 
-                # Save processed video
                 if processed_frames:
                     output_path = "processed_video.mp4"
                     height, width = processed_frames[0].shape[:2]
