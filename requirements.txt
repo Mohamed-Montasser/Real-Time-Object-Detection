@@ -1,8 +1,8 @@
 streamlit==1.29.0
-ultralytics==8.0.230
-opencv-python-headless==4.8.1.78
-pillow==10.1.0
-numpy==1.26.3
-torch==2.1.2
-torchvision==0.16.2
+ultralytics==8.1.0
+opencv-python-headless==4.9.0.80
+pillow==10.2.0
+numpy==2.0.0
+torch==2.3.0
+torchvision==0.18.0
 gdown==4.7.1
