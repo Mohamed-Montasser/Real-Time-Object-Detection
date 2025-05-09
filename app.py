@@ -1,6 +1,12 @@
 import streamlit as st
 from ultralytics import YOLO
-import cv2
+try:
+    import cv2
+except ImportError:
+    import sys
+    import subprocess
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "opencv-python-headless"])
+    import cv2
 import numpy as np
 from PIL import Image
 import tempfile
