@@ -66,26 +66,25 @@ MODEL_PATHS = {
 }
 
 @st.cache_resource(show_spinner=False)
-def load_model(model_info):
-    """Download (if needed) and load model from Google Drive"""
-    os.makedirs("weights", exist_ok=True)  # Create weights folder
-    
-    # Download if file doesn't exist
-    if not os.path.exists(model_info["path"]):
-        try:
-            with st.spinner(f"Downloading model..."):
-                gdown.download(model_info["url"], model_info["path"], quiet=False)
-        except Exception as e:
-            st.error(f"Download failed: {e}")
-            return None
-    
-    # Load the model
+def load_model(model_path):
     try:
-        model = YOLO(model_info["path"])
-        model.names = CUSTOM_LABELS
+        # Verify file first
+        if not os.path.exists(model_path):
+            st.error(f"Model file not found at {model_path}")
+            return None
+            
+        # Check file content
+        with open(model_path, 'rb') as f:
+            header = f.read(10)
+            if header.startswith(b'<') or b'html' in header.lower():
+                st.error("Download failed - got HTML instead of model file")
+                return None
+                
+        # Now load
+        model = YOLO(model_path)
         return model
     except Exception as e:
-        st.error(f"Model loading failed: {e}")
+        st.error(f"Model loading failed: {str(e)}")
         return None
 
 def process_frame(_model, frame, conf_threshold):
