@@ -8,6 +8,8 @@ try:
     )
 except Exception as e:
     st.error(f"Page config error: {e}")
+
+# Import necessary libraries
 from ultralytics import YOLO
 try:
     import cv2
@@ -26,6 +28,7 @@ import sys
 import torch
 import ultralytics
 
+# Display version information
 st.write(f"Python: {sys.version}")
 st.write(f"PyTorch: {torch.__version__}")
 st.write(f"Ultralytics: {ultralytics.__version__}")
@@ -66,7 +69,8 @@ MODEL_PATHS = {
 }
 
 @st.cache_resource(show_spinner=False)
-def load_model(model_info):  # Now accepts the full dict
+def load_model(model_info):
+    """Load the model with proper error handling and verification"""
     try:
         model_path = model_info["path"]
         
@@ -133,13 +137,16 @@ def main():
     st.title("🚦 BDD10K Traffic Object Detection")
     st.caption("Detect vehicles, pedestrians, and traffic elements in images/videos")
     
-    # Sidebar controls
+    # Sidebar controls - ONLY DEFINE CONTROLS ONCE
     with st.sidebar:
         st.header("Settings")
+        
+        # Define model_type radio button ONCE
         model_type = st.radio(
             "Model Format",
             list(MODEL_PATHS.keys()),
-            index=0
+            index=0,
+            key="model_format_selector"
         )
         
         conf_threshold = st.slider(
@@ -156,15 +163,11 @@ def main():
         3. View results
         """)
 
-    # Load model
-    model_type = st.sidebar.radio(
-    "Model Format",
-    list(MODEL_PATHS.keys()),
-    key="model_format_selector"  # Unique key
-    )
+    # Load model with the selected model_type
     model = load_model(MODEL_PATHS[model_type])
-    #model = load_model(MODEL_PATHS[model_type]) 
+    
     if not model:
+        st.error("Model could not be loaded. Please check the error message above.")
         return
 
     # File upload
