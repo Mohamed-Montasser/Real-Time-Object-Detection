@@ -9,7 +9,7 @@ try:
 except Exception as e:
     st.error(f"Page config error: {e}")
 
-# Import standard libraries first
+# Import required libraries
 import numpy as np
 import tempfile
 import os
@@ -19,33 +19,18 @@ import io
 import requests
 import logging
 from PIL import Image
+import cv2
+import torch
+from ultralytics import YOLO
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Dynamic imports with fallback installation
-def import_with_auto_install(package_name, import_name=None):
-    if import_name is None:
-        import_name = package_name
-    try:
-        return __import__(import_name)
-    except ImportError:
-        st.info(f"Installing {package_name}...")
-        import subprocess
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
-        return __import__(import_name)
-
-# Import required packages with auto-installation
-cv2 = import_with_auto_install("opencv-python-headless")
-torch = import_with_auto_install("torch")
-ultralytics = import_with_auto_install("ultralytics")
-from ultralytics import YOLO
-
 # Display environment info
 st.write(f"Python: {sys.version}")
 st.write(f"PyTorch: {torch.__version__}")
-st.write(f"Ultralytics: {ultralytics.__version__}")
+st.write(f"OpenCV: {cv2.__version__}")
 
 # Custom CSS
 st.markdown("""
@@ -159,9 +144,9 @@ def load_model(model_info):
                             st.error("Failed to download model after multiple attempts.")
                             st.info("""
                             ### Troubleshooting:
-                            1. Check your internet connection
-                            2. The Google Drive file might be restricted or unavailable
-                            3. Try uploading your own model file using the uploader below
+                            1. The Google Drive file might be restricted or unavailable
+                            2. Try uploading your own model file using the uploader below
+                            3. Or try using a pre-trained YOLOv8 model
                             """)
                             return None
             
@@ -185,6 +170,17 @@ def load_model(model_info):
                 st.error("Failed to load model after multiple attempts.")
                 return None
 
+def load_pretrained_model():
+    """Load a pretrained YOLOv8 model as fallback"""
+    try:
+        with st.spinner("Loading pre-trained YOLOv8 model..."):
+            model = YOLO("yolov8n.pt")  # Use the smallest YOLOv8 model
+            st.success("Pre-trained YOLOv8 model loaded successfully")
+            return model
+    except Exception as e:
+        st.error(f"Error loading pre-trained model: {str(e)}")
+        return None
+
 def process_frame(_model, frame, conf_threshold):
     """Process a single frame with error handling"""
     try:
@@ -201,11 +197,19 @@ def display_detections(results):
         detections = []
         for box in results[0].boxes:
             cls_idx = int(box.cls)
-            if cls_idx < len(CUSTOM_LABELS):  # Ensure index is valid
-                detections.append({
-                    "label": CUSTOM_LABELS[cls_idx],
-                    "confidence": float(box.conf)
-                })
+            # For standard YOLOv8 model with COCO classes
+            if hasattr(results[0], 'names') and results[0].names:
+                label = results[0].names.get(cls_idx, f"Class {cls_idx}")
+            # For BDD10K custom model
+            elif cls_idx < len(CUSTOM_LABELS):
+                label = CUSTOM_LABELS[cls_idx]
+            else:
+                label = f"Class {cls_idx}"  # Fallback label
+                
+            detections.append({
+                "label": label,
+                "confidence": float(box.conf)
+            })
         
         if detections:
             with st.sidebar.expander("📊 Detection Stats", expanded=True):
@@ -230,9 +234,10 @@ def main():
     with st.sidebar:
         st.header("Settings")
         
+        model_options = list(MODEL_PATHS.keys()) + ["Pre-trained YOLOv8"]
         model_type = st.radio(
-            "Model Format",
-            list(MODEL_PATHS.keys()),
+            "Model Selection",
+            model_options,
             key="model_format_selector"  # Unique key
         )
         
@@ -257,8 +262,9 @@ def main():
         3. View results
         """)
 
-    # Load model with fallback to uploaded model
+    # Load model with fallbacks
     model = None
+    
     if custom_model:
         # Save uploaded model to temp file
         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(custom_model.name)[1]) as tmp_file:
@@ -270,11 +276,13 @@ def main():
             st.success(f"Custom model loaded: {custom_model.name}")
         except Exception as e:
             st.error(f"Error loading custom model: {e}")
+    elif model_type == "Pre-trained YOLOv8":
+        model = load_pretrained_model()
     else:
         model = load_model(MODEL_PATHS[model_type])
     
     if not model:
-        st.warning("No working model available. Please upload a custom model or try troubleshooting steps.")
+        st.warning("No working model available. Please try a pre-trained model or upload a custom model.")
         return
 
     # File upload
