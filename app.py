@@ -151,7 +151,11 @@ def main():
         """)
 
     # Load model
-    model_type = st.sidebar.radio("Model Format", list(MODEL_PATHS.keys()))
+    model_type = st.sidebar.radio(
+    "Model Format",
+    list(MODEL_PATHS.keys()),
+    key="model_format_selector"  # Unique key
+    )
     model = load_model(MODEL_PATHS[model_type])
     if not model:
         return
