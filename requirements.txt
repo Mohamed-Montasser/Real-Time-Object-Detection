@@ -6,3 +6,4 @@ numpy==1.26.4
 torch==2.3.0
 torchvision==0.18.0
 gdown==4.7.1
+onnxruntime==1.16.0
