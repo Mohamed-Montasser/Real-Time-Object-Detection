@@ -9,33 +9,20 @@ try:
 except Exception as e:
     st.error(f"Page config error: {e}")
 
-from ultralytics import YOLO
-try:
-    import cv2
-except ImportError:
-    import sys
-    import subprocess
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "opencv-python-headless"])
-    import cv2
-
+import cv2
 import numpy as np
 from PIL import Image
 import tempfile
 import os
 import time
 import sys
-import torch
-import ultralytics
-import sys
 from pathlib import Path
 
-# Add custom modules to path
-sys.path.append(str(Path(__file__).parent))
-import custom_modules  # This registers your C3k2 class
+# ONNX-specific imports
+import onnxruntime as ort
+from ultralytics import YOLO  # Still needed for some utilities
 
 st.write(f"Python: {sys.version}")
-st.write(f"PyTorch: {torch.__version__}")
-st.write(f"Ultralytics: {ultralytics.__version__}")
 
 # Custom CSS
 st.markdown("""
@@ -61,14 +48,34 @@ st.markdown("""
 # Constants
 CUSTOM_LABELS = ["car", "train", "motor", "person", "bus", "truck", "bike", 
                 "rider", "traffic light", "traffic sign"]
+MODEL_PATH = "weights/best.onnx"
+INPUT_SIZE = 640  # Standard YOLO input size
 
-MODEL_PATH = "weights/best.pt"
+class ONNXModel:
+    def __init__(self, model_path):
+        self.session = ort.InferenceSession(model_path)
+        self.input_name = self.session.get_inputs()[0].name
+        self.output_names = [output.name for output in self.session.get_outputs()]
+        
+    def predict(self, image, conf_threshold=0.5):
+        # Preprocess
+        img = cv2.resize(image, (INPUT_SIZE, INPUT_SIZE))
+        img = img.transpose(2, 0, 1)  # HWC to CHW
+        img = np.expand_dims(img, axis=0).astype(np.float32) / 255.0
+        
+        # Run inference
+        outputs = self.session.run(self.output_names, {self.input_name: img})
+        
+        # Post-process (simplified - you'll need to adapt this to your model's output format)
+        # This part will vary based on how your ONNX model was exported
+        # You may need to use YOLO's native postprocessing or implement your own
+        return outputs
 
 @st.cache_resource(show_spinner=False)
 def load_model():
     try:
         if not os.path.exists(MODEL_PATH):
-            st.error(f"Model file not found at {MODEL_PATH}")
+            st.error(f"ONNX model file not found at {MODEL_PATH}")
             return None
             
         file_size = os.path.getsize(MODEL_PATH)/(1024*1024)  # Size in MB
@@ -83,13 +90,13 @@ def load_model():
                 st.error("File appears to be HTML, not a model file")
                 return None
                 
-        # Load with explicit device mapping
-        model = YOLO(MODEL_PATH)
+        # Load ONNX model
+        model = ONNXModel(MODEL_PATH)
         
         # Quick test prediction
         try:
-            dummy = np.zeros((640, 640, 3), dtype=np.uint8)
-            model.predict(dummy, verbose=False)
+            dummy = np.zeros((INPUT_SIZE, INPUT_SIZE, 3), dtype=np.uint8)
+            model.predict(dummy)
         except Exception as e:
             st.error(f"Model test failed: {str(e)}")
             return None
@@ -101,39 +108,30 @@ def load_model():
 
 def process_frame(_model, frame, conf_threshold):
     try:
-        results = _model(frame, conf=conf_threshold, verbose=False)
-        annotated_frame = results[0].plot(line_width=2, font_size=10)
-        return cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB), results
+        # Preprocess frame
+        frame_resized = cv2.resize(frame, (INPUT_SIZE, INPUT_SIZE))
+        
+        # Get predictions
+        outputs = _model.predict(frame_resized, conf_threshold)
+        
+        # This is a placeholder - you'll need to implement proper visualization
+        # based on your ONNX model's output format
+        annotated_frame = frame.copy()
+        cv2.putText(annotated_frame, "ONNX Model Working", (50, 50), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        
+        return cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB), outputs
     except Exception as e:
         st.error(f"Processing error: {str(e)}")
         return frame, None
 
 def display_detections(results):
-    if results:
-        detections = []
-        for box in results[0].boxes:
-            detections.append({
-                "label": CUSTOM_LABELS[int(box.cls)],
-                "confidence": float(box.conf)
-            })
-
-        if detections:
-            with st.sidebar.expander("📊 Detection Stats", expanded=True):
-                st.subheader("Detected Objects")
-                for det in sorted(detections, key=lambda x: x['confidence'], reverse=True):
-                    st.progress(det['confidence'], 
-                               text=f"{det['label']}: {det['confidence']:.2f}")
-                
-                st.subheader("Class Distribution")
-                class_counts = {}
-                for det in detections:
-                    class_counts[det['label']] = class_counts.get(det['label'], 0) + 1
-                
-                for label, count in class_counts.items():
-                    st.metric(label=label, value=count)
+    """Placeholder - implement based on your ONNX output format"""
+    with st.sidebar.expander("📊 Detection Stats", expanded=True):
+        st.warning("Detection display needs implementation based on ONNX output format")
 
 def main():
-    st.title("🚦 BDD10K Traffic Object Detection")
+    st.title("🚦 BDD10K Traffic Object Detection (ONNX)")
     st.caption("Detect vehicles, pedestrians, and traffic elements in images/videos")
     
     with st.sidebar:
