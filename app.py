@@ -10,28 +10,44 @@ except Exception as e:
     st.error(f"Page config error: {e}")
 
 # Import necessary libraries
-from ultralytics import YOLO
-try:
-    import cv2
-except ImportError:
-    import sys
-    import subprocess
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "opencv-python-headless"])
-    import cv2
-import numpy as np
-from PIL import Image
-import tempfile
+import sys
 import os
 import time
-import gdown
-import sys
+import tempfile
+import numpy as np
+from PIL import Image
 import torch
-import ultralytics
 
 # Display version information
 st.write(f"Python: {sys.version}")
 st.write(f"PyTorch: {torch.__version__}")
-st.write(f"Ultralytics: {ultralytics.__version__}")
+
+# Install required packages if needed
+try:
+    from ultralytics import YOLO
+    import ultralytics
+    st.write(f"Ultralytics: {ultralytics.__version__}")
+except ImportError:
+    st.info("Installing ultralytics...")
+    import subprocess
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "ultralytics"])
+    from ultralytics import YOLO
+    import ultralytics
+    st.write(f"Ultralytics: {ultralytics.__version__}")
+
+try:
+    import cv2
+except ImportError:
+    st.info("Installing OpenCV...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "opencv-python-headless"])
+    import cv2
+
+try:
+    import gdown
+except ImportError:
+    st.info("Installing gdown...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "gdown"])
+    import gdown
 
 # Custom CSS
 st.markdown("""
@@ -60,63 +76,98 @@ CUSTOM_LABELS = ["car", "train", "motor", "person", "bus", "truck", "bike",
 MODEL_PATHS = {
     "PyTorch (.pt)": {
         "url": "https://drive.google.com/uc?export=download&id=10h9qk50tdkVrBQ2czqPF3rvsgXuDMpDJ",
-        "path": "best.pt"  # Local save path
+        "path": os.path.join(os.getcwd(), "best.pt")  # Full path
     },
     "ONNX (.onnx)": {
         "url": "https://drive.google.com/uc?export=download&id=13RtUuLQa4HdK2w1qUtFm8RRA0WafkSXW",
-        "path": "best.onnx"  # Local save path
+        "path": os.path.join(os.getcwd(), "best.onnx")  # Full path
     }
 }
 
+# Ensure model directory exists
+os.makedirs(os.getcwd(), exist_ok=True)
+
 @st.cache_resource(show_spinner=False)
-def load_model(model_info):
+def load_model(model_type):
     """Load the model with proper error handling and verification"""
+    if model_type not in MODEL_PATHS:
+        st.error(f"Unknown model type: {model_type}")
+        return None
+        
+    model_info = MODEL_PATHS[model_type]
+    model_path = model_info["path"]
+    
     try:
-        model_path = model_info["path"]
+        # Create the directory if it doesn't exist
+        os.makedirs(os.path.dirname(model_path), exist_ok=True)
         
         # Download if file doesn't exist
         if not os.path.exists(model_path):
-            with st.spinner(f"Downloading model from {model_info['url']}..."):
-                gdown.download(model_info["url"], model_path, quiet=False, use_cookies=True)
+            with st.spinner(f"Downloading model from Google Drive..."):
+                try:
+                    gdown.download(model_info["url"], model_path, quiet=False, use_cookies=True)
+                    st.success(f"Model downloaded to {model_path}")
+                except Exception as download_error:
+                    st.error(f"Download error: {download_error}")
+                    return None
         
-        # Verify file
+        # Verify file exists
         if not os.path.exists(model_path):
             st.error(f"Model file not found at {model_path}")
             return None
             
-        # Check file content
-        with open(model_path, 'rb') as f:
-            header = f.read(10)
-            if header.startswith(b'<') or b'html' in header.lower():
-                st.error("Download failed - got HTML instead of model file")
-                return None
-                
-        # Load model
-        model = YOLO(model_path)
+        # Check file size
+        file_size = os.path.getsize(model_path)
+        if file_size < 10000:  # Less than 10KB is probably not a valid model
+            with open(model_path, 'rb') as f:
+                header = f.read(100)
+                if b'<!DOCTYPE html>' in header or b'<html' in header:
+                    st.error("Downloaded file is HTML, not a model file. Drive link may require authentication.")
+                    # Remove the invalid file
+                    os.remove(model_path)
+                    return None
+        
+        st.info(f"Loading model from {model_path}...")
+        
+        # Load model with explicit task
+        model = YOLO(model_path, task='detect')
+        st.success("Model loaded successfully!")
         return model
+        
     except Exception as e:
         st.error(f"Model loading failed: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
         return None
 
-def process_frame(_model, frame, conf_threshold):
+def process_frame(model, frame, conf_threshold):
     """Process a single frame with error handling"""
+    if model is None:
+        return frame, None
+        
     try:
-        results = _model(frame, conf=conf_threshold, verbose=False)
+        results = model(frame, conf=conf_threshold, verbose=False)
         annotated_frame = results[0].plot(line_width=2, font_size=10)
         return cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB), results
     except Exception as e:
         st.error(f"Processing error: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
         return frame, None
 
 def display_detections(results):
     """Display detection results in sidebar"""
-    if results:
+    if results and results[0].boxes:
         detections = []
         for box in results[0].boxes:
-            detections.append({
-                "label": CUSTOM_LABELS[int(box.cls)],
-                "confidence": float(box.conf)
-            })
+            class_idx = int(box.cls)
+            if class_idx < len(CUSTOM_LABELS):
+                detections.append({
+                    "label": CUSTOM_LABELS[class_idx],
+                    "confidence": float(box.conf)
+                })
+            else:
+                st.warning(f"Unknown class index: {class_idx}")
         
         if detections:
             with st.sidebar.expander("📊 Detection Stats", expanded=True):
@@ -137,17 +188,32 @@ def main():
     st.title("🚦 BDD10K Traffic Object Detection")
     st.caption("Detect vehicles, pedestrians, and traffic elements in images/videos")
     
-    # Sidebar controls - ONLY DEFINE CONTROLS ONCE
+    # Show debug info
+    if st.checkbox("Show Debug Info"):
+        st.write(f"Current working directory: {os.getcwd()}")
+        st.write(f"Files in directory: {os.listdir(os.getcwd())}")
+    
+    # Sidebar controls
     with st.sidebar:
         st.header("Settings")
         
-        # Define model_type radio button ONCE
+        # Model selection
         model_type = st.radio(
             "Model Format",
             list(MODEL_PATHS.keys()),
             index=0,
             key="model_format_selector"
         )
+        
+        # Try loading model with button to give more control
+        if st.button("Load Selected Model"):
+            with st.spinner("Loading model..."):
+                model = load_model(model_type)
+                if model:
+                    st.session_state['model'] = model
+                    st.success(f"Model loaded successfully!")
+                else:
+                    st.error("Failed to load model. Check errors above.")
         
         conf_threshold = st.slider(
             "Confidence Threshold", 
@@ -158,16 +224,17 @@ def main():
         st.divider()
         st.info("""
         **Instructions:**
-        1. Upload image/video
-        2. Click 'Process'
-        3. View results
+        1. Select model format
+        2. Click "Load Selected Model"
+        3. Upload image/video
+        4. Click 'Process'
+        5. View results
         """)
 
-    # Load model with the selected model_type
-    model = load_model(MODEL_PATHS[model_type])
-    
-    if not model:
-        st.error("Model could not be loaded. Please check the error message above.")
+    # Check if model is loaded
+    model = st.session_state.get('model', None)
+    if model is None:
+        st.warning("Please load a model from the sidebar first.")
         return
 
     # File upload
