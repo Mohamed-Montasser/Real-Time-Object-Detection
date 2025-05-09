@@ -162,7 +162,7 @@ def main():
     list(MODEL_PATHS.keys()),
     key="model_format_selector"  # Unique key
     )
-    model_path = MODEL_PATHS[model_type]["path"]  # Get the path string from dict
+    model = load_model(MODEL_PATHS[model_type])
     model = load_model(model_path)
     if not model:
         return
