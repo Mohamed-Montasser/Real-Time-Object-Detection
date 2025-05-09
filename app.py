@@ -73,7 +73,7 @@ def load_model(model_info):  # Now accepts the full dict
         # Download if file doesn't exist
         if not os.path.exists(model_path):
             with st.spinner(f"Downloading model from {model_info['url']}..."):
-                gdown.download(model_info["url"], model_path, quiet=False)
+                gdown.download(model_info["url"], model_path, quiet=False, use_cookies=True)
         
         # Verify file
         if not os.path.exists(model_path):
