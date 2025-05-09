@@ -163,7 +163,7 @@ def main():
     key="model_format_selector"  # Unique key
     )
     model = load_model(MODEL_PATHS[model_type])
-    model = load_model(model_path)
+    #model = load_model(MODEL_PATHS[model_type]) 
     if not model:
         return
 
