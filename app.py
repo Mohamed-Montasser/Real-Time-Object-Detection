@@ -66,9 +66,16 @@ MODEL_PATHS = {
 }
 
 @st.cache_resource(show_spinner=False)
-def load_model(model_path):
+def load_model(model_info):  # Now accepts the full dict
     try:
-        # Verify file first
+        model_path = model_info["path"]
+        
+        # Download if file doesn't exist
+        if not os.path.exists(model_path):
+            with st.spinner(f"Downloading model from {model_info['url']}..."):
+                gdown.download(model_info["url"], model_path, quiet=False)
+        
+        # Verify file
         if not os.path.exists(model_path):
             st.error(f"Model file not found at {model_path}")
             return None
@@ -80,7 +87,7 @@ def load_model(model_path):
                 st.error("Download failed - got HTML instead of model file")
                 return None
                 
-        # Now load
+        # Load model
         model = YOLO(model_path)
         return model
     except Exception as e:
@@ -155,7 +162,8 @@ def main():
     list(MODEL_PATHS.keys()),
     key="model_format_selector"  # Unique key
     )
-    model = load_model(MODEL_PATHS[model_type])
+    model_path = MODEL_PATHS[model_type]["path"]  # Get the path string from dict
+    model = load_model(model_path)
     if not model:
         return
 
