@@ -182,6 +182,10 @@ def process_frame(model, frame, conf_threshold):
         
     try:
         results = model(frame, conf=conf_threshold, verbose=False)
+        
+        # Override model's class names with custom labels
+        results[0].names = {i: label for i, label in enumerate(CUSTOM_LABELS)}
+
         annotated_frame = results[0].plot(line_width=2, font_size=10)
         return cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB), results
     except Exception as e:
