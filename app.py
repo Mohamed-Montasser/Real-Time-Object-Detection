@@ -8,24 +8,41 @@ try:
     )
 except Exception as e:
     st.error(f"Page config error: {e}")
-from ultralytics import YOLO
-try:
-    import cv2
-except ImportError:
-    import sys
-    import subprocess
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "opencv-python-headless"])
-    import cv2
+
+# Import standard libraries first
 import numpy as np
-from PIL import Image
 import tempfile
 import os
 import time
-import gdown
 import sys
-import torch
-import ultralytics
+import io
+import requests
+import logging
+from PIL import Image
 
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Dynamic imports with fallback installation
+def import_with_auto_install(package_name, import_name=None):
+    if import_name is None:
+        import_name = package_name
+    try:
+        return __import__(import_name)
+    except ImportError:
+        st.info(f"Installing {package_name}...")
+        import subprocess
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
+        return __import__(import_name)
+
+# Import required packages with auto-installation
+cv2 = import_with_auto_install("opencv-python-headless")
+torch = import_with_auto_install("torch")
+ultralytics = import_with_auto_install("ultralytics")
+from ultralytics import YOLO
+
+# Display environment info
 st.write(f"Python: {sys.version}")
 st.write(f"PyTorch: {torch.__version__}")
 st.write(f"Ultralytics: {ultralytics.__version__}")
@@ -56,43 +73,117 @@ CUSTOM_LABELS = ["car", "train", "motor", "person", "bus", "truck", "bike",
                 "rider", "traffic light", "traffic sign"]
 MODEL_PATHS = {
     "PyTorch (.pt)": {
-        "url": "https://drive.google.com/uc?export=download&id=10h9qk50tdkVrBQ2czqPF3rvsgXuDMpDJ",
-        "path": "best.pt"  # Local save path
+        "url": "https://drive.google.com/uc?id=10h9qk50tdkVrBQ2czqPF3rvsgXuDMpDJ",
+        "path": "best.pt",  # Local save path
+        "id": "10h9qk50tdkVrBQ2czqPF3rvsgXuDMpDJ"
     },
     "ONNX (.onnx)": {
-        "url": "https://drive.google.com/uc?export=download&id=13RtUuLQa4HdK2w1qUtFm8RRA0WafkSXW",
-        "path": "best.onnx"  # Local save path
+        "url": "https://drive.google.com/uc?id=13RtUuLQa4HdK2w1qUtFm8RRA0WafkSXW",
+        "path": "best.onnx",  # Local save path
+        "id": "13RtUuLQa4HdK2w1qUtFm8RRA0WafkSXW"
     }
 }
 
-@st.cache_resource(show_spinner=False)
-def load_model(model_info):  # Now accepts the full dict
+def download_file_from_google_drive(file_id, destination):
+    """
+    More robust Google Drive downloader with direct API approach
+    """
     try:
-        model_path = model_info["path"]
+        # Define session and headers
+        session = requests.Session()
         
-        # Download if file doesn't exist
-        if not os.path.exists(model_path):
-            with st.spinner(f"Downloading model from {model_info['url']}..."):
-                gdown.download(model_info["url"], model_path, quiet=False, use_cookies=True)
+        # Step 1: Get confirmation token
+        url = f"https://drive.google.com/uc?id={file_id}&export=download"
+        response = session.get(url, stream=True)
         
-        # Verify file
-        if not os.path.exists(model_path):
-            st.error(f"Model file not found at {model_path}")
-            return None
+        # Check if we have a small file without confirmation
+        token = None
+        for key, value in response.cookies.items():
+            if key.startswith('download_warning'):
+                token = value
+                break
+        
+        # Step 2: Get the actual file with token if needed
+        if token:
+            url = f"https://drive.google.com/uc?id={file_id}&export=download&confirm={token}"
+            response = session.get(url, stream=True)
+        
+        # Step 3: Save the file
+        with open(destination, 'wb') as f:
+            total_length = response.headers.get('content-length')
+            dl = 0
+            total_length = int(total_length) if total_length else None
             
-        # Check file content
-        with open(model_path, 'rb') as f:
-            header = f.read(10)
-            if header.startswith(b'<') or b'html' in header.lower():
-                st.error("Download failed - got HTML instead of model file")
-                return None
-                
-        # Load model
-        model = YOLO(model_path)
-        return model
+            for chunk in response.iter_content(chunk_size=4096):
+                if chunk:
+                    dl += len(chunk)
+                    f.write(chunk)
+                    # Show download progress
+                    if total_length is not None:
+                        done = int(50 * dl / total_length)
+                        sys.stdout.write("\r[%s%s] %s%%" % ('=' * done, ' ' * (50-done), int(100 * dl / total_length)))
+                        sys.stdout.flush()
+        
+        # Verify file isn't HTML
+        with open(destination, 'rb') as f:
+            header = f.read(20)
+            if b'<html' in header.lower() or b'<!doctype html' in header.lower():
+                os.remove(destination)
+                return False
+        
+        return True
     except Exception as e:
-        st.error(f"Model loading failed: {str(e)}")
-        return None
+        logger.error(f"Download error: {e}")
+        return False
+
+@st.cache_resource(show_spinner=False)
+def load_model(model_info):
+    """Load or download model with improved error handling"""
+    model_path = model_info["path"]
+    file_id = model_info["id"]
+    
+    # Try 3 times to download
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        try:
+            # Check if model exists
+            if not os.path.exists(model_path):
+                with st.spinner(f"Downloading model (attempt {attempt+1}/{max_attempts})..."):
+                    success = download_file_from_google_drive(file_id, model_path)
+                    if not success:
+                        if attempt < max_attempts - 1:
+                            st.warning(f"Download attempt {attempt+1} failed. Retrying...")
+                            time.sleep(1)  # Wait before retry
+                            continue
+                        else:
+                            st.error("Failed to download model after multiple attempts.")
+                            st.info("""
+                            ### Troubleshooting:
+                            1. Check your internet connection
+                            2. The Google Drive file might be restricted or unavailable
+                            3. Try uploading your own model file using the uploader below
+                            """)
+                            return None
+            
+            # Verify file size is reasonable for a model
+            file_size = os.path.getsize(model_path)
+            if file_size < 10000:  # Less than 10KB is suspicious for a model
+                st.warning(f"Downloaded file seems too small ({file_size} bytes), might not be a valid model")
+            
+            # Try to load the model
+            model = YOLO(model_path)
+            st.success(f"Model loaded successfully from {model_path}")
+            return model
+            
+        except Exception as e:
+            st.error(f"Model loading error: {str(e)}")
+            if os.path.exists(model_path):
+                os.remove(model_path)  # Remove potentially corrupt file
+            if attempt < max_attempts - 1:
+                st.warning(f"Retrying download (attempt {attempt+2}/{max_attempts})...")
+            else:
+                st.error("Failed to load model after multiple attempts.")
+                return None
 
 def process_frame(_model, frame, conf_threshold):
     """Process a single frame with error handling"""
@@ -109,10 +200,12 @@ def display_detections(results):
     if results:
         detections = []
         for box in results[0].boxes:
-            detections.append({
-                "label": CUSTOM_LABELS[int(box.cls)],
-                "confidence": float(box.conf)
-            })
+            cls_idx = int(box.cls)
+            if cls_idx < len(CUSTOM_LABELS):  # Ensure index is valid
+                detections.append({
+                    "label": CUSTOM_LABELS[cls_idx],
+                    "confidence": float(box.conf)
+                })
         
         if detections:
             with st.sidebar.expander("📊 Detection Stats", expanded=True):
@@ -136,10 +229,18 @@ def main():
     # Sidebar controls
     with st.sidebar:
         st.header("Settings")
+        
         model_type = st.radio(
             "Model Format",
             list(MODEL_PATHS.keys()),
-            index=0
+            key="model_format_selector"  # Unique key
+        )
+        
+        # Alternative model upload option
+        custom_model = st.file_uploader(
+            "Or upload your own model file",
+            type=["pt", "onnx"],
+            help="Upload your own trained model if downloads aren't working"
         )
         
         conf_threshold = st.slider(
@@ -156,15 +257,24 @@ def main():
         3. View results
         """)
 
-    # Load model
-    model_type = st.sidebar.radio(
-    "Model Format",
-    list(MODEL_PATHS.keys()),
-    key="model_format_selector"  # Unique key
-    )
-    model = load_model(MODEL_PATHS[model_type])
-    #model = load_model(MODEL_PATHS[model_type]) 
+    # Load model with fallback to uploaded model
+    model = None
+    if custom_model:
+        # Save uploaded model to temp file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(custom_model.name)[1]) as tmp_file:
+            tmp_file.write(custom_model.getvalue())
+            custom_model_path = tmp_file.name
+        
+        try:
+            model = YOLO(custom_model_path)
+            st.success(f"Custom model loaded: {custom_model.name}")
+        except Exception as e:
+            st.error(f"Error loading custom model: {e}")
+    else:
+        model = load_model(MODEL_PATHS[model_type])
+    
     if not model:
+        st.warning("No working model available. Please upload a custom model or try troubleshooting steps.")
         return
 
     # File upload
@@ -214,53 +324,71 @@ def main():
                 cap = cv2.VideoCapture(tfile.name)
                 fps = cap.get(cv2.CAP_PROP_FPS)
                 
+                # Check if video opened successfully
+                if not cap.isOpened():
+                    st.error("Error opening video file!")
+                    return
+                
                 st_frame = st.empty()
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 
                 frame_count = 0
-                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1000  # Fallback if unknown
                 processed_frames = []
                 
-                while cap.isOpened():
-                    ret, frame = cap.read()
-                    if not ret:
-                        break
-                    
-                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    processed_frame, _ = process_frame(model, frame, conf_threshold)
-                    processed_frames.append(processed_frame)
-                    
-                    # Display every nth frame to improve performance
-                    if frame_count % 5 == 0:
-                        st_frame.image(processed_frame, channels="RGB")
-                    
-                    progress = frame_count / total_frames
-                    progress_bar.progress(min(progress, 1.0))
-                    status_text.text(f"Processing: {frame_count}/{total_frames} frames")
-                    frame_count += 1
+                # Process frames
+                try:
+                    while cap.isOpened():
+                        ret, frame = cap.read()
+                        if not ret:
+                            break
+                        
+                        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        processed_frame, _ = process_frame(model, frame, conf_threshold)
+                        processed_frames.append(processed_frame)
+                        
+                        # Display every nth frame to improve performance
+                        if frame_count % 5 == 0:
+                            st_frame.image(processed_frame, channels="RGB")
+                        
+                        progress = frame_count / total_frames
+                        progress_bar.progress(min(progress, 1.0))
+                        status_text.text(f"Processing: {frame_count}/{total_frames} frames")
+                        frame_count += 1
+                except Exception as e:
+                    st.error(f"Error during video processing: {e}")
+                finally:
+                    cap.release()
                 
-                cap.release()
                 os.unlink(tfile.name)
                 
                 # Save processed video
                 if processed_frames:
-                    output_path = "processed_video.mp4"
-                    height, width = processed_frames[0].shape[:2]
-                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-                    
-                    for frame in processed_frames:
-                        out.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-                    out.release()
-                    
-                    st.success("Processing complete!")
-                    st.download_button(
-                        label="Download Processed Video",
-                        data=open(output_path, 'rb').read(),
-                        file_name="processed_video.mp4",
-                        mime="video/mp4"
-                    )
+                    try:
+                        output_path = "processed_video.mp4"
+                        height, width = processed_frames[0].shape[:2]
+                        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+                        
+                        for frame in processed_frames:
+                            out.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+                        out.release()
+                        
+                        st.success("Processing complete!")
+                        st.download_button(
+                            label="Download Processed Video",
+                            data=open(output_path, 'rb').read(),
+                            file_name="processed_video.mp4",
+                            mime="video/mp4"
+                        )
+                    except Exception as e:
+                        st.error(f"Error saving video: {e}")
+
+    # Show sample images if no file uploaded
+    if not uploaded_file:
+        st.info("Upload an image or video to begin object detection")
+        # Could add sample images here in the future
 
 if __name__ == "__main__":
     main()
