@@ -71,7 +71,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Constants
-CUSTOM_LABELS = ["car", "train", "motor", "person", "bus", "truck", "bike", 
+CUSTOM_LABELS = ["bike", "train", "motor", "person", "bus", "truck", "car", 
                 "rider", "traffic light", "traffic sign"]
 MODEL_PATHS = {
     "PyTorch (.pt)": {
