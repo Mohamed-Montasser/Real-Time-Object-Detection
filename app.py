@@ -1,4 +1,13 @@
+# MUST BE FIRST STREAMLIT COMMAND
 import streamlit as st
+try:
+    st.set_page_config(
+        page_title="BDD10K Object Detection",
+        page_icon="🚗", 
+        layout="wide"
+    )
+except Exception as e:
+    st.error(f"Page config error: {e}")
 from ultralytics import YOLO
 try:
     import cv2
@@ -20,13 +29,6 @@ import ultralytics
 st.write(f"Python: {sys.version}")
 st.write(f"PyTorch: {torch.__version__}")
 st.write(f"Ultralytics: {ultralytics.__version__}")
-
-# Set page config
-st.set_page_config(
-    page_title="BDD10K Object Detection",
-    page_icon="🚗",
-    layout="wide"
-)
 
 # Custom CSS
 st.markdown("""
