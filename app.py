@@ -26,6 +26,12 @@ import time
 import sys
 import torch
 import ultralytics
+import sys
+from pathlib import Path
+
+# Add custom modules to path
+sys.path.append(str(Path(__file__).parent))
+import custom_modules  # This registers your C3k2 class
 
 st.write(f"Python: {sys.version}")
 st.write(f"PyTorch: {torch.__version__}")
