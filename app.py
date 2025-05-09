@@ -64,7 +64,30 @@ def load_model():
         if not os.path.exists(MODEL_PATH):
             st.error(f"Model file not found at {MODEL_PATH}")
             return None
+            
+        file_size = os.path.getsize(MODEL_PATH)/(1024*1024)  # Size in MB
+        if file_size < 10:  # Adjust based on your expected model size
+            st.error(f"Model file seems too small ({file_size:.2f} MB). Expected at least 10MB.")
+            return None
+            
+        # Verify file content
+        with open(MODEL_PATH, 'rb') as f:
+            header = f.read(10)
+            if header.startswith(b'<') or b'html' in header.lower():
+                st.error("File appears to be HTML, not a model file")
+                return None
+                
+        # Load with explicit device mapping
         model = YOLO(MODEL_PATH)
+        
+        # Quick test prediction
+        try:
+            dummy = np.zeros((640, 640, 3), dtype=np.uint8)
+            model.predict(dummy, verbose=False)
+        except Exception as e:
+            st.error(f"Model test failed: {str(e)}")
+            return None
+            
         return model
     except Exception as e:
         st.error(f"Model loading failed: {str(e)}")
