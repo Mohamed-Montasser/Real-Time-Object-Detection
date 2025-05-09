@@ -7,6 +7,14 @@ import tempfile
 import os
 import time
 import gdown
+import sys
+import torch
+import ultralytics
+
+st.write(f"Python: {sys.version}")
+st.write(f"PyTorch: {torch.__version__}")
+st.write(f"Ultralytics: {ultralytics.__version__}")
+
 # Set page config
 st.set_page_config(
     page_title="BDD10K Object Detection",
